@@ -12,7 +12,8 @@ from google.protobuf.internal.enum_type_wrapper import EnumTypeWrapper
 def process_type(t, cls, msg_id, indexfile, is_upy):
     print("  * type %s" % t)
 
-    imports = ['from trezorlib import protobuf as p']
+    imports = ['from __future__ import absolute_import',
+               'from .. import protobuf as p']
 
     out = ["", "", "class %s(p.MessageType):" % t, ]
 
@@ -35,6 +36,10 @@ def process_type(t, cls, msg_id, indexfile, is_upy):
             # TYPE_UINT32 = 13
             # TYPE_ENUM = 14
             type = 'p.UVarintType'
+
+        elif v.type in (17,):
+            # TYPE_SINT32 = 17
+            type = 'p.Sint32Type'
 
         elif v.type == 9:
             # TYPE_STRING = 9
