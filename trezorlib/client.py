@@ -30,10 +30,8 @@ import getpass
 
 from mnemonic import Mnemonic
 
+from . import messages as proto
 from . import tools
-# from . import mapping
-from . import messages_pb2 as proto
-from . import types_pb2 as types
 from .coins import coins_slip44
 from .debuglink import DebugLink
 
@@ -53,9 +51,6 @@ except NameError:
 SCREENSHOT = False
 
 DEFAULT_CURVE = 'secp256k1'
-
-# monkeypatching: text formatting of protobuf messages
-tools.monkeypatch_google_protobuf_text_format()
 
 
 def getch():
@@ -85,17 +80,12 @@ def getch():
 
 def get_buttonrequest_value(code):
     # Converts integer code to its string representation of ButtonRequestType
-    return [k for k, v in types.ButtonRequestType.items() if v == code][0]
+    return [k for k in dir(proto.ButtonRequestType) if getattr(proto.ButtonRequestType, k) == code][0]
 
 
 def pprint(msg):
     msg_class = msg.__class__.__name__
     msg_size = msg.ByteSize()
-    """
-    msg_ser = msg.SerializeToString()
-    msg_id = mapping.get_type(msg)
-    msg_json = json_format.MessageToDict(msg, preserving_proto_field_name=True)
-    """
     if isinstance(msg, proto.FirmwareUpload) or isinstance(msg, proto.SelfTest):
         return "<%s> (%d bytes):\n" % (msg_class, msg_size)
     else:
@@ -128,7 +118,6 @@ class field(object):
     def __call__(self, f):
         def wrapped_f(*args, **kwargs):
             ret = f(*args, **kwargs)
-            ret.HasField(self.field)
             return getattr(ret, self.field)
         return wrapped_f
 
@@ -209,8 +198,8 @@ class BaseClient(object):
         return resp
 
     def callback_Failure(self, msg):
-        if msg.code in (types.Failure_PinInvalid,
-                        types.Failure_PinCancelled, types.Failure_PinExpected):
+        if msg.code in (proto.FailureType.PinInvalid,
+                        proto.FailureType.PinCancelled, proto.FailureType.PinExpected):
             raise PinException(msg.code, msg.message)
 
         raise CallException(msg.code, msg.message)
@@ -255,18 +244,18 @@ class TextUIMixin(object):
                 return proto.WordAck(word='\x08')
 
             # ignore middle column if only 6 keys requested.
-            if msg.type == types.WordRequestType_Matrix6 and character in ('2', '5', '8'):
+            if msg.type == proto.WordRequestType_Matrix6 and character in ('2', '5', '8'):
                 continue
 
             if character.isdigit():
                 return proto.WordAck(word=character)
 
     def callback_PinMatrixRequest(self, msg):
-        if msg.type == types.PinMatrixRequestType_Current:
+        if msg.type == proto.PinMatrixRequestType_Current:
             desc = 'current PIN'
-        elif msg.type == types.PinMatrixRequestType_NewFirst:
+        elif msg.type == proto.PinMatrixRequestType_NewFirst:
             desc = 'new PIN'
-        elif msg.type == types.PinMatrixRequestType_NewSecond:
+        elif msg.type == proto.PinMatrixRequestType_NewSecond:
             desc = 'new PIN again'
         else:
             desc = 'PIN'
@@ -293,8 +282,8 @@ class TextUIMixin(object):
             exit()
 
     def callback_WordRequest(self, msg):
-        if msg.type in (types.WordRequestType_Matrix9,
-                        types.WordRequestType_Matrix6):
+        if msg.type in (proto.WordRequestType_Matrix9,
+                        proto.WordRequestType_Matrix6):
             return self.callback_RecoveryMatrix(msg)
         log("Enter one word of mnemonic: ")
         word = input()
@@ -401,17 +390,17 @@ class DebugLinkMixin(object):
             try:
                 expected = self.expected_responses.pop(0)
             except IndexError:
-                raise CallException(types.Failure_UnexpectedMessage,
+                raise CallException(proto.Failure_UnexpectedMessage,
                                     "Got %s, but no message has been expected" % pprint(msg))
 
             if msg.__class__ != expected.__class__:
-                raise CallException(types.Failure_UnexpectedMessage,
+                raise CallException(proto.Failure_UnexpectedMessage,
                                     "Expected %s, got %s" % (pprint(expected), pprint(msg)))
 
             fields = expected.ListFields()  # only filled (including extensions)
             for field, value in fields:
-                if not msg.HasField(field.name) or getattr(msg, field.name) != value:
-                    raise CallException(types.Failure_UnexpectedMessage,
+                if field.name not in msg or getattr(msg, field.name) != value:
+                    raise CallException(proto.Failure_UnexpectedMessage,
                                         "Expected %s, got %s" % (pprint(expected), pprint(msg)))
 
     def callback_ButtonRequest(self, msg):
@@ -513,7 +502,7 @@ class ProtocolMixin(object):
 
     @field('address')
     @expect(proto.Address)
-    def get_address(self, coin_name, n, show_display=False, multisig=None, script_type=types.SPENDADDRESS):
+    def get_address(self, coin_name, n, show_display=False, multisig=None, script_type=proto.InputScriptType.SPENDADDRESS):
         n = self._convert_prime(n)
         if multisig:
             return self.call(proto.GetAddress(address_n=n, coin_name=coin_name, show_display=show_display, multisig=multisig, script_type=script_type))
@@ -556,7 +545,7 @@ class ProtocolMixin(object):
 
         response = self.call(msg)
 
-        while response.HasField('data_length'):
+        while 'data_lenght' in response:
             data_length = response.data_length
             data, chunk = data[data_length:], data[:data_length]
             response = self.call(proto.EthereumTxAck(data_chunk=chunk))
@@ -635,7 +624,7 @@ class ProtocolMixin(object):
         return ret
 
     @expect(proto.MessageSignature)
-    def sign_message(self, coin_name, n, message, script_type=types.SPENDADDRESS):
+    def sign_message(self, coin_name, n, message, script_type=proto.InputScriptType.SPENDADDRESS):
         n = self._convert_prime(n)
         # Convert message to UTF8 NFC (seems to be a bitcoin-qt standard)
         message = normalize_nfc(message).encode("utf-8")
@@ -695,14 +684,14 @@ class ProtocolMixin(object):
                     msg.public_key = binascii.unhexlify(transfer["message"]["publicKey"])
 
             if "mosaics" in transfer:
-                msg.mosaics.extend(types.NEMMosaic(
+                msg.mosaics.extend(proto.NEMMosaic(
                     namespace=mosaic["mosaicId"]["namespaceId"],
                     mosaic=mosaic["mosaicId"]["name"],
                     quantity=mosaic["quantity"],
                 ) for mosaic in transfer["mosaics"])
 
         def aggregate_modification_to_proto(aggregate_modification, msg):
-            msg.modifications.extend(types.NEMCosignatoryModification(
+            msg.modifications.extend(proto.NEMCosignatoryModification(
                 type=modification["modificationType"],
                 public_key=binascii.unhexlify(modification["cosignatoryAccount"]),
             ) for modification in aggregate_modification["modifications"])
@@ -855,7 +844,7 @@ class ProtocolMixin(object):
         return self.call(msg).serialized.serialized_tx
 
     def _prepare_sign_tx(self, coin_name, inputs, outputs):
-        tx = types.TransactionType()
+        tx = proto.TransactionType()
         tx.inputs.extend(inputs)
         tx.outputs.extend(outputs)
 
@@ -907,24 +896,24 @@ class ProtocolMixin(object):
                 raise CallException("Unexpected message")
 
             # If there's some part of signed transaction, let's add it
-            if res.HasField('serialized') and res.serialized.HasField('serialized_tx'):
+            if 'serialized' in res and 'serialized_tx' in res.serialized:
                 log("RECEIVED PART OF SERIALIZED TX (%d BYTES)" % len(res.serialized.serialized_tx))
                 serialized_tx += res.serialized.serialized_tx
 
-            if res.HasField('serialized') and res.serialized.HasField('signature_index'):
+            if 'serialized' in res and 'signature_index' in res.serialized:
                 if signatures[res.serialized.signature_index] is not None:
                     raise ValueError("Signature for index %d already filled" % res.serialized.signature_index)
                 signatures[res.serialized.signature_index] = res.serialized.signature
 
-            if res.request_type == types.TXFINISHED:
+            if res.request_type == proto.TXFINISHED:
                 # Device didn't ask for more information, finish workflow
                 break
 
             # Device asked for one more information, let's process it.
             current_tx = txes[res.details.tx_hash]
 
-            if res.request_type == types.TXMETA:
-                msg = types.TransactionType()
+            if res.request_type == proto.TXMETA:
+                msg = proto.TransactionType()
                 msg.version = current_tx.version
                 msg.lock_time = current_tx.lock_time
                 msg.inputs_cnt = len(current_tx.inputs)
@@ -936,8 +925,8 @@ class ProtocolMixin(object):
                 res = self.call(proto.TxAck(tx=msg))
                 continue
 
-            elif res.request_type == types.TXINPUT:
-                msg = types.TransactionType()
+            elif res.request_type == proto.TXINPUT:
+                msg = proto.TransactionType()
                 msg.inputs.extend([current_tx.inputs[res.details.request_index], ])
                 if debug_processor is not None:
                     # If debug_processor function is provided,
@@ -948,8 +937,8 @@ class ProtocolMixin(object):
                 res = self.call(proto.TxAck(tx=msg))
                 continue
 
-            elif res.request_type == types.TXOUTPUT:
-                msg = types.TransactionType()
+            elif res.request_type == proto.TXOUTPUT:
+                msg = proto.TransactionType()
                 if res.details.tx_hash:
                     msg.bin_outputs.extend([current_tx.bin_outputs[res.details.request_index], ])
                 else:
@@ -964,9 +953,9 @@ class ProtocolMixin(object):
                 res = self.call(proto.TxAck(tx=msg))
                 continue
 
-            elif res.request_type == types.TXEXTRADATA:
+            elif res.request_type == proto.TXEXTRADATA:
                 o, l = res.details.extra_data_offset, res.details.extra_data_len
-                msg = types.TransactionType()
+                msg = proto.TransactionType()
                 msg.extra_data = current_tx.extra_data[o:o + l]
                 res = self.call(proto.TxAck(tx=msg))
                 continue
@@ -988,7 +977,7 @@ class ProtocolMixin(object):
 
     @field('message')
     @expect(proto.Success)
-    def recovery_device(self, word_count, passphrase_protection, pin_protection, label, language, type=types.RecoveryDeviceType_ScrambledWords, expand=False, dry_run=False):
+    def recovery_device(self, word_count, passphrase_protection, pin_protection, label, language, type=proto.RecoveryDeviceType.ScrambledWords, expand=False, dry_run=False):
         if self.features.initialized and not dry_run:
             raise RuntimeError("Device is initialized already. Call wipe_device() and try again.")
 
@@ -1088,7 +1077,7 @@ class ProtocolMixin(object):
         if len(xprv) < 100 and len(xprv) > 112:
             raise ValueError("Invalid length of xprv")
 
-        node = types.HDNodeType()
+        node = proto.HDNodeType()
         data = binascii.hexlify(tools.b58decode(xprv, None))
 
         if data[90:92] != b'00':
@@ -1128,7 +1117,7 @@ class ProtocolMixin(object):
         data = fp.read()
 
         resp = self.call(proto.FirmwareErase(length=len(data)))
-        if isinstance(resp, proto.Failure) and resp.code == types.Failure_FirmwareError:
+        if isinstance(resp, proto.Failure) and resp.code == proto.Failure_FirmwareError:
             return False
 
         # TREZORv1 method
@@ -1138,7 +1127,7 @@ class ProtocolMixin(object):
             resp = self.call(proto.FirmwareUpload(payload=data))
             if isinstance(resp, proto.Success):
                 return True
-            elif isinstance(resp, proto.Failure) and resp.code == types.Failure_FirmwareError:
+            elif isinstance(resp, proto.Failure) and resp.code == proto.Failure_FirmwareError:
                 return False
             raise RuntimeError("Unexpected result %s" % resp)
 
@@ -1153,7 +1142,7 @@ class ProtocolMixin(object):
                     continue
                 elif isinstance(resp, proto.Success):
                     return True
-                elif isinstance(resp, proto.Failure) and resp.code == types.Failure_FirmwareError:
+                elif isinstance(resp, proto.Failure) and resp.code == proto.Failure_FirmwareError:
                     return False
                 raise RuntimeError("Unexpected result %s" % resp)
 

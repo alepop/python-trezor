@@ -1,3 +1,21 @@
+# This file is part of the TREZOR project.
+#
+# Copyright (C) 2012-2016 Marek Palatinus <slush@satoshilabs.com>
+# Copyright (C) 2012-2016 Pavol Rusnak <stick@satoshilabs.com>
+#
+# This library is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Lesser General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This library is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this library.  If not, see <http://www.gnu.org/licenses/>.
+
 '''
 Extremely minimal streaming codec for a subset of protobuf.  Supports uint32,
 bytes, string, embedded message and repeated fields.
@@ -20,6 +38,8 @@ required:
 >>>         Writes all bytes from `buffer`, or raises `EOFError`.
 >>>         """
 '''
+
+from io import BytesIO
 
 _UVARINT_BUFFER = bytearray(1)
 
@@ -81,6 +101,43 @@ class MessageType:
     def __repr__(self):
         return '<%s: %s>' % (self.__class__.__name__, self.__dict__)
 
+    def __iter__(self):
+        return self.__dict__.__iter__()
+
+    def __getattr__(self, attr):
+        if attr.startswith('_add_'):
+            print('__add', attr)
+            return self._additem(attr[5:])
+
+        raise AttributeError
+
+    def _additem(self, attr):
+        # Add new item for repeated field type
+        for v in self.FIELDS.values():
+            if v[0] != attr:
+                continue
+            if not (v[2] & FLAG_REPEATED):
+                raise AttributeError
+
+            try:
+                l = getattr(self, v[0])
+            except AttributeError:
+                l = []
+                setattr(self, v[0], l)
+
+            item = v[1]()
+            l.append(item)
+            return lambda: item
+
+        raise AttributeError
+
+    def CopyFrom(self, obj):
+        self.__dict__ = obj.__dict__.copy()
+
+    def ByteSize(self):
+        data = BytesIO()
+        dump_message(data, self)
+        return len(data.getvalue())
 
 class LimitedReader:
 
