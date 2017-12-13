@@ -390,17 +390,16 @@ class DebugLinkMixin(object):
             try:
                 expected = self.expected_responses.pop(0)
             except IndexError:
-                raise CallException(proto.Failure_UnexpectedMessage,
+                raise CallException(proto.FailureType.UnexpectedMessage,
                                     "Got %s, but no message has been expected" % pprint(msg))
 
             if msg.__class__ != expected.__class__:
-                raise CallException(proto.Failure_UnexpectedMessage,
+                raise CallException(proto.FailureType.UnexpectedMessage,
                                     "Expected %s, got %s" % (pprint(expected), pprint(msg)))
 
-            fields = expected.ListFields()  # only filled (including extensions)
-            for field, value in fields:
-                if field.name not in msg or getattr(msg, field.name) != value:
-                    raise CallException(proto.Failure_UnexpectedMessage,
+            for field, value in expected.__dict__.items():
+                if field not in msg or getattr(msg, field) != value:
+                    raise CallException(proto.FailureType.UnexpectedMessage,
                                         "Expected %s, got %s" % (pprint(expected), pprint(msg)))
 
     def callback_ButtonRequest(self, msg):
@@ -1117,7 +1116,7 @@ class ProtocolMixin(object):
         data = fp.read()
 
         resp = self.call(proto.FirmwareErase(length=len(data)))
-        if isinstance(resp, proto.Failure) and resp.code == proto.Failure_FirmwareError:
+        if isinstance(resp, proto.Failure) and resp.code == proto.FailureType.FirmwareError:
             return False
 
         # TREZORv1 method
@@ -1127,7 +1126,7 @@ class ProtocolMixin(object):
             resp = self.call(proto.FirmwareUpload(payload=data))
             if isinstance(resp, proto.Success):
                 return True
-            elif isinstance(resp, proto.Failure) and resp.code == proto.Failure_FirmwareError:
+            elif isinstance(resp, proto.Failure) and resp.code == proto.FailureType.FirmwareError:
                 return False
             raise RuntimeError("Unexpected result %s" % resp)
 
@@ -1142,7 +1141,7 @@ class ProtocolMixin(object):
                     continue
                 elif isinstance(resp, proto.Success):
                     return True
-                elif isinstance(resp, proto.Failure) and resp.code == proto.Failure_FirmwareError:
+                elif isinstance(resp, proto.Failure) and resp.code == proto.FailureType.FirmwareError:
                     return False
                 raise RuntimeError("Unexpected result %s" % resp)
 
