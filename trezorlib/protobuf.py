@@ -106,10 +106,24 @@ class MessageType:
 
     def __getattr__(self, attr):
         if attr.startswith('_add_'):
-            print('__add', attr)
             return self._additem(attr[5:])
 
-        raise AttributeError
+        if attr.startswith('_extend_'):
+            return self._extenditem(attr[8:])
+
+        raise AttributeError(attr)
+
+    def _extenditem(self, attr):
+        def f(param):
+            try:
+                l = getattr(self, attr)
+            except AttributeError:
+                l = []
+                setattr(self, attr, l)
+
+            l += param
+
+        return f
 
     def _additem(self, attr):
         # Add new item for repeated field type
@@ -221,6 +235,7 @@ def load_message(reader, msg_type):
             pvalue = getattr(msg, fname, [])
             pvalue.append(fvalue)
             fvalue = pvalue
+        #print("YYY", fname, fvalue)
         setattr(msg, fname, fvalue)
 
     # fill missing fields
@@ -270,11 +285,11 @@ def dump_message(writer, msg):
                 writer.write(svalue)
 
             elif ftype is UnicodeType:
+                if not isinstance(svalue, bytes):
+                    svalue = svalue.encode()
+
                 dump_uvarint(writer, len(svalue))
-                if isinstance(svalue, bytes):
-                    writer.write(svalue)
-                else:
-                    writer.write(svalue.encode())
+                writer.write(svalue)
 
             elif issubclass(ftype, MessageType):
                 counter = CountingWriter()

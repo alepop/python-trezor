@@ -131,7 +131,7 @@ def serialize(node, version=0x0488B21E):
     s += struct.pack('>I', node.fingerprint)
     s += struct.pack('>I', node.child_num)
     s += node.chain_code
-    if 'private_key' in node:
+    if node.private_key:
         s += b'\x00' + node.private_key
     else:
         s += node.public_key

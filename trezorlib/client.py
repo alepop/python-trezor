@@ -398,7 +398,7 @@ class DebugLinkMixin(object):
                                     "Expected %s, got %s" % (pprint(expected), pprint(msg)))
 
             for field, value in expected.__dict__.items():
-                if field not in msg or getattr(msg, field) != value:
+                if getattr(msg, field) != value:
                     raise CallException(proto.FailureType.UnexpectedMessage,
                                         "Expected %s, got %s" % (pprint(expected), pprint(msg)))
 
@@ -544,7 +544,7 @@ class ProtocolMixin(object):
 
         response = self.call(msg)
 
-        while 'data_lenght' in response:
+        while response.data_length is not None:
             data_length = response.data_length
             data, chunk = data[data_length:], data[:data_length]
             response = self.call(proto.EthereumTxAck(data_chunk=chunk))
@@ -663,16 +663,20 @@ class ProtocolMixin(object):
     def nem_sign_tx(self, n, transaction):
         n = self._convert_prime(n)
 
-        def common_to_proto(common, msg):
+        def common_to_proto(common):
+            msg = proto.NEMTransactionCommon()
             msg.network = (common["version"] >> 24) & 0xFF
             msg.timestamp = common["timeStamp"]
             msg.fee = common["fee"]
             msg.deadline = common["deadline"]
 
-            if "signer" in common:
+            if "signed" in common:
                 msg.signer = binascii.unhexlify(common["signer"])
 
-        def transfer_to_proto(transfer, msg):
+            return msg
+
+        def transfer_to_proto(transfer):
+            msg = proto.NEMTransfer()
             msg.recipient = transfer["recipient"]
             msg.amount = transfer["amount"]
 
@@ -683,14 +687,15 @@ class ProtocolMixin(object):
                     msg.public_key = binascii.unhexlify(transfer["message"]["publicKey"])
 
             if "mosaics" in transfer:
-                msg.mosaics.extend(proto.NEMMosaic(
+                msg._extend_mosaics(proto.NEMMosaic(
                     namespace=mosaic["mosaicId"]["namespaceId"],
                     mosaic=mosaic["mosaicId"]["name"],
                     quantity=mosaic["quantity"],
                 ) for mosaic in transfer["mosaics"])
+            return msg
 
         def aggregate_modification_to_proto(aggregate_modification, msg):
-            msg.modifications.extend(proto.NEMCosignatoryModification(
+            msg._extend_modifications(proto.NEMCosignatoryModification(
                 type=modification["modificationType"],
                 public_key=binascii.unhexlify(modification["cosignatoryAccount"]),
             ) for modification in aggregate_modification["modifications"])
@@ -707,7 +712,8 @@ class ProtocolMixin(object):
             msg.sink = provision_namespace["rentalFeeSink"]
             msg.fee = provision_namespace["rentalFee"]
 
-        def mosaic_creation_to_proto(mosaic_creation, msg):
+        def mosaic_creation_to_proto(mosaic_creation):
+            msg = proto.NEMMosaicCreation()
             msg.definition.namespace = mosaic_creation["mosaicDefinition"]["id"]["namespaceId"]
             msg.definition.mosaic = mosaic_creation["mosaicDefinition"]["id"]["name"]
 
@@ -735,36 +741,38 @@ class ProtocolMixin(object):
 
             msg.sink = mosaic_creation["creationFeeSink"]
             msg.fee = mosaic_creation["creationFee"]
+            return msg
 
-        def mosaic_supply_change_to_proto(mosaic_supply_change, msg):
+        def mosaic_supply_change_to_proto(mosaic_supply_change):
+            msg = proto.NEMMosaicSupplyChange()
             msg.namespace = mosaic_supply_change["mosaicId"]["namespaceId"]
             msg.mosaic = mosaic_supply_change["mosaicId"]["name"]
             msg.type = mosaic_supply_change["supplyType"]
             msg.delta = mosaic_supply_change["delta"]
+            return msg
 
         msg = proto.NEMSignTx()
 
-        common_to_proto(transaction, msg.transaction)
-        msg.transaction.address_n.extend(n)
-
+        msg.transaction = common_to_proto(transaction)
+        msg.transaction._extend_address_n(n)
         msg.cosigning = (transaction["type"] == 0x1002)
 
         if msg.cosigning or transaction["type"] == 0x1004:
             transaction = transaction["otherTrans"]
-            common_to_proto(transaction, msg.multisig)
+            msg.multisig = common_to_proto(transaction)
         elif "otherTrans" in transaction:
             raise CallException("Transaction does not support inner transaction")
 
         if transaction["type"] == 0x0101:
-            transfer_to_proto(transaction, msg.transfer)
+            msg.transfer = transfer_to_proto(transaction)
         elif transaction["type"] == 0x1001:
             aggregate_modification_to_proto(transaction, msg.aggregate_modification)
         elif transaction["type"] == 0x2001:
             provision_namespace_to_proto(transaction, msg.provision_namespace)
         elif transaction["type"] == 0x4001:
-            mosaic_creation_to_proto(transaction, msg.mosaic_creation)
+            msg = mosaic_creation_to_proto(transaction)
         elif transaction["type"] == 0x4002:
-            mosaic_supply_change_to_proto(transaction, msg.mosaic_supply_change)
+            msg.mosaic_supply_change = mosaic_supply_change_to_proto(transaction)
         else:
             raise CallException("Unknown transaction type")
 
@@ -821,8 +829,8 @@ class ProtocolMixin(object):
     def _prepare_simple_sign_tx(self, coin_name, inputs, outputs):
         msg = proto.SimpleSignTx()
         msg.coin_name = coin_name
-        msg.inputs.extend(inputs)
-        msg.outputs.extend(outputs)
+        msg._extend_inputs(inputs)
+        msg._extend_outputs(outputs)
 
         known_hashes = []
         for inp in inputs:
@@ -844,8 +852,8 @@ class ProtocolMixin(object):
 
     def _prepare_sign_tx(self, coin_name, inputs, outputs):
         tx = proto.TransactionType()
-        tx.inputs.extend(inputs)
-        tx.outputs.extend(outputs)
+        tx._extend_inputs(inputs)
+        tx._extend_outputs(outputs)
 
         txes = {}
         txes[b''] = tx
@@ -895,11 +903,11 @@ class ProtocolMixin(object):
                 raise CallException("Unexpected message")
 
             # If there's some part of signed transaction, let's add it
-            if 'serialized' in res and 'serialized_tx' in res.serialized:
+            if res.serialized and res.serialized.serialized_tx:
                 log("RECEIVED PART OF SERIALIZED TX (%d BYTES)" % len(res.serialized.serialized_tx))
                 serialized_tx += res.serialized.serialized_tx
 
-            if 'serialized' in res and 'signature_index' in res.serialized:
+            if res.serialized and res.serialized.signature_index:
                 if signatures[res.serialized.signature_index] is not None:
                     raise ValueError("Signature for index %d already filled" % res.serialized.signature_index)
                 signatures[res.serialized.signature_index] = res.serialized.signature
@@ -926,7 +934,7 @@ class ProtocolMixin(object):
 
             elif res.request_type == proto.TXINPUT:
                 msg = proto.TransactionType()
-                msg.inputs.extend([current_tx.inputs[res.details.request_index], ])
+                msg._extend_inputs([current_tx.inputs[res.details.request_index], ])
                 if debug_processor is not None:
                     # If debug_processor function is provided,
                     # pass thru it the request and prepared response.
@@ -939,9 +947,9 @@ class ProtocolMixin(object):
             elif res.request_type == proto.TXOUTPUT:
                 msg = proto.TransactionType()
                 if res.details.tx_hash:
-                    msg.bin_outputs.extend([current_tx.bin_outputs[res.details.request_index], ])
+                    msg._extend_bin_outputs([current_tx.bin_outputs[res.details.request_index], ])
                 else:
-                    msg.outputs.extend([current_tx.outputs[res.details.request_index], ])
+                    msg._extend_outputs([current_tx.outputs[res.details.request_index], ])
 
                 if debug_processor is not None:
                     # If debug_processor function is provided,

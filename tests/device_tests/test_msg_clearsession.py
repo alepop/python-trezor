@@ -28,13 +28,13 @@ class TestMsgClearsession(common.TrezorTest):
         self.setup_mnemonic_pin_passphrase()
 
         with self.client:
-            self.client.set_expected_responses([proto.ButtonRequest(code=proto.ButtonRequest.ProtectCall), proto.PinMatrixRequest(), proto.PassphraseRequest(), proto.Success()])
+            self.client.set_expected_responses([proto.ButtonRequest(code=proto.ButtonRequestType.ProtectCall), proto.PinMatrixRequest(), proto.PassphraseRequest(), proto.Success()])
             res = self.client.ping('random data', button_protection=True, pin_protection=True, passphrase_protection=True)
             self.assertEqual(res, 'random data')
 
         with self.client:
             # pin and passphrase are cached
-            self.client.set_expected_responses([proto.ButtonRequest(code=proto.ButtonRequest.ProtectCall), proto.Success()])
+            self.client.set_expected_responses([proto.ButtonRequest(code=proto.ButtonRequestType.ProtectCall), proto.Success()])
             res = self.client.ping('random data', button_protection=True, pin_protection=True, passphrase_protection=True)
             self.assertEqual(res, 'random data')
 
@@ -42,12 +42,12 @@ class TestMsgClearsession(common.TrezorTest):
 
         # session cache is cleared
         with self.client:
-            self.client.set_expected_responses([proto.ButtonRequest(code=proto.ButtonRequest.ProtectCall), proto.PinMatrixRequest(), proto.PassphraseRequest(), proto.Success()])
+            self.client.set_expected_responses([proto.ButtonRequest(code=proto.ButtonRequestType.ProtectCall), proto.PinMatrixRequest(), proto.PassphraseRequest(), proto.Success()])
             res = self.client.ping('random data', button_protection=True, pin_protection=True, passphrase_protection=True)
             self.assertEqual(res, 'random data')
 
         with self.client:
             # pin and passphrase are cached
-            self.client.set_expected_responses([proto.ButtonRequest(code=proto.ButtonRequest.ProtectCall), proto.Success()])
+            self.client.set_expected_responses([proto.ButtonRequest(code=proto.ButtonRequestType.ProtectCall), proto.Success()])
             res = self.client.ping('random data', button_protection=True, pin_protection=True, passphrase_protection=True)
             self.assertEqual(res, 'random data')

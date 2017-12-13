@@ -63,7 +63,6 @@ class ProtocolV1(object):
 
         # Parse to protobuf
         msg = protobuf.load_message(data, mapping.get_class(msg_type))
-        print(msg)
         return msg
 
     def parse_first(self, chunk):
