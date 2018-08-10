@@ -25,7 +25,6 @@ PUBLIC_KEY = unhexlify('eb56d7bbb5e8ea9269405f7a8527fe126023d1db2c973cfac6f760b6
 
 
 @pytest.mark.lisk
-@pytest.mark.skip_t1
 class TestMsgLiskSignTx(TrezorTest):
 
     def test_lisk_sign_tx_send(self):

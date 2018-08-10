@@ -20,7 +20,6 @@ from .common import TrezorTest
 
 
 @pytest.mark.lisk
-@pytest.mark.skip_t1
 class TestMsgLiskGetaddress(TrezorTest):
 
     def test_lisk_getaddress(self):

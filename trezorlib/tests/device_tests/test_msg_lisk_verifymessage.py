@@ -22,7 +22,6 @@ from trezorlib import messages as proto
 
 
 @pytest.mark.lisk
-@pytest.mark.skip_t1
 class TestMsgLiskVerifymessage(TrezorTest):
 
     def test_verify(self):

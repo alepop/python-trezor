@@ -21,7 +21,6 @@ from .common import TrezorTest
 
 
 @pytest.mark.lisk
-@pytest.mark.skip_t1
 class TestMsgLiskGetPublicKey(TrezorTest):
 
     def test_lisk_get_public_key(self):

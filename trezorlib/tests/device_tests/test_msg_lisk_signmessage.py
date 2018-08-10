@@ -21,7 +21,6 @@ from .common import TrezorTest
 
 
 @pytest.mark.lisk
-@pytest.mark.skip_t1
 class TestMsgLiskSignmessage(TrezorTest):
 
     def test_sign(self):
